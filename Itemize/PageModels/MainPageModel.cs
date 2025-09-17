@@ -1,174 +1,345 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
+using Microsoft.Maui.Controls;
+using System.Linq;
+
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Itemize.Models;
+using Microsoft.Maui.ApplicationModel;
 
-namespace Itemize.PageModels
+namespace Itemize.PageModels;
+
+public partial class MainPageModel : ObservableObject
 {
-    public partial class MainPageModel : ObservableObject, IProjectTaskPageModel
+    private const int ExpiringThresholdDays = 5;
+
+    private readonly IPantryStore _pantryStore;
+    private readonly RecipeSuggestionService _recipeSuggestionService;
+    private readonly FamilyContext _familyContext;
+
+    private bool _isInitialized;
+    private bool _isUpdatingFamilySelection;
+    private bool _isLoading;
+    private List<PantryItem> _currentItems = new();
+
+    public ObservableCollection<Family> Families { get; } = new();
+
+    public IReadOnlyList<PantrySortOption> SortOptions { get; }
+        = new List<PantrySortOption>
+        {
+            new("Alfabetico", PantrySortType.Alphabetical),
+            new("Data di scadenza", PantrySortType.ExpirationDate),
+            new("Data di aggiunta", PantrySortType.AddedDate),
+            new("Categoria", PantrySortType.Category),
+        };
+
+    [ObservableProperty]
+    private Family? _selectedFamily;
+
+    [ObservableProperty]
+    private PantrySortOption? _selectedSortOption;
+
+    [ObservableProperty]
+    private ObservableCollection<PantrySection> _pantrySections = new();
+
+    [ObservableProperty]
+    private ObservableCollection<PantryItem> _expiringItems = new();
+
+    [ObservableProperty]
+    private ObservableCollection<PantryItem> _lowStockItems = new();
+
+    [ObservableProperty]
+    private ObservableCollection<RecipeSuggestion> _recipeSuggestions = new();
+
+    [ObservableProperty]
+    private PantrySummary _summary = new()
     {
-        private bool _isNavigatedTo;
-        private bool _dataLoaded;
-        private readonly ProjectRepository _projectRepository;
-        private readonly TaskRepository _taskRepository;
-        private readonly CategoryRepository _categoryRepository;
-        private readonly ModalErrorHandler _errorHandler;
-        private readonly SeedDataService _seedDataService;
+        TotalItems = 0,
+        UniqueProducts = 0,
+        ExpiringSoonCount = 0,
+        ExpiredCount = 0,
+        LowStockCount = 0,
+    };
 
-        [ObservableProperty]
-        private List<CategoryChartData> _todoCategoryData = [];
+    [ObservableProperty]
+    private bool _isRefreshing;
 
-        [ObservableProperty]
-        private List<Brush> _todoCategoryColors = [];
+    [ObservableProperty]
+    private bool _isBusy;
 
-        [ObservableProperty]
-        private List<ProjectTask> _tasks = [];
+    public MainPageModel(IPantryStore pantryStore, RecipeSuggestionService recipeSuggestionService, FamilyContext familyContext)
+    {
+        _pantryStore = pantryStore;
+        _recipeSuggestionService = recipeSuggestionService;
+        _familyContext = familyContext;
 
-        [ObservableProperty]
-        private List<Project> _projects = [];
+        _selectedSortOption = SortOptions.First();
 
-        [ObservableProperty]
-        bool _isBusy;
+        _pantryStore.PantryChanged += OnPantryChanged;
+    }
 
-        [ObservableProperty]
-        bool _isRefreshing;
-
-        [ObservableProperty]
-        private string _today = DateTime.Now.ToString("dddd, MMM d");
-
-        public bool HasCompletedTasks
-            => Tasks?.Any(t => t.IsCompleted) ?? false;
-
-        public MainPageModel(SeedDataService seedDataService, ProjectRepository projectRepository,
-            TaskRepository taskRepository, CategoryRepository categoryRepository, ModalErrorHandler errorHandler)
+    [RelayCommand]
+    private async Task Appearing()
+    {
+        if (_isInitialized)
         {
-            _projectRepository = projectRepository;
-            _taskRepository = taskRepository;
-            _categoryRepository = categoryRepository;
-            _errorHandler = errorHandler;
-            _seedDataService = seedDataService;
+            if (SelectedFamily is not null)
+            {
+                await RefreshInternalAsync(SelectedFamily.Id);
+            }
+            return;
         }
 
-        private async Task LoadData()
+        _isInitialized = true;
+        await LoadFamiliesAsync();
+        if (SelectedFamily is not null)
         {
-            try
-            {
-                IsBusy = true;
+            await RefreshInternalAsync(SelectedFamily.Id);
+        }
+    }
 
-                Projects = await _projectRepository.ListAsync();
-
-                var chartData = new List<CategoryChartData>();
-                var chartColors = new List<Brush>();
-
-                var categories = await _categoryRepository.ListAsync();
-                foreach (var category in categories)
-                {
-                    chartColors.Add(category.ColorBrush);
-
-                    var ps = Projects.Where(p => p.CategoryID == category.ID).ToList();
-                    int tasksCount = ps.SelectMany(p => p.Tasks).Count();
-
-                    chartData.Add(new(category.Title, tasksCount));
-                }
-
-                TodoCategoryData = chartData;
-                TodoCategoryColors = chartColors;
-
-                Tasks = await _taskRepository.ListAsync();
-            }
-            finally
-            {
-                IsBusy = false;
-                OnPropertyChanged(nameof(HasCompletedTasks));
-            }
+    [RelayCommand]
+    private async Task Refresh()
+    {
+        if (SelectedFamily is null)
+        {
+            return;
         }
 
-        private async Task InitData(SeedDataService seedDataService)
+        IsRefreshing = true;
+        await RefreshInternalAsync(SelectedFamily.Id);
+        IsRefreshing = false;
+    }
+
+    [RelayCommand]
+    private async Task StartShopping()
+    {
+        if (SelectedFamily is null)
         {
-            bool isSeeded = Preferences.Default.ContainsKey("is_seeded");
-
-            if (!isSeeded)
-            {
-                await seedDataService.LoadSeedDataAsync();
-            }
-
-            Preferences.Default.Set("is_seeded", true);
-            await Refresh();
+            return;
         }
 
-        [RelayCommand]
-        private async Task Refresh()
+        await Shell.Current.GoToAsync("//shopping");
+    }
+
+    [RelayCommand]
+    private async Task EditItem(PantryItem item)
+    {
+        if (SelectedFamily is null)
         {
-            try
-            {
-                IsRefreshing = true;
-                await LoadData();
-            }
-            catch (Exception e)
-            {
-                _errorHandler.HandleError(e);
-            }
-            finally
-            {
-                IsRefreshing = false;
-            }
+            return;
         }
 
-        [RelayCommand]
-        private void NavigatedTo() =>
-            _isNavigatedTo = true;
+        var result = await Shell.Current.DisplayPromptAsync(
+            "Modifica quantità",
+            $"Aggiorna la quantità per {item.Name}",
+            keyboard: Keyboard.Numeric,
+            initialValue: item.Quantity.ToString("0.##", CultureInfo.CurrentCulture));
 
-        [RelayCommand]
-        private void NavigatedFrom() =>
-            _isNavigatedTo = false;
-
-        [RelayCommand]
-        private async Task Appearing()
+        if (string.IsNullOrWhiteSpace(result))
         {
-            if (!_dataLoaded)
-            {
-                await InitData(_seedDataService);
-                _dataLoaded = true;
-                await Refresh();
-            }
-            // This means we are being navigated to
-            else if (!_isNavigatedTo)
-            {
-                await Refresh();
-            }
+            return;
         }
 
-        [RelayCommand]
-        private Task TaskCompleted(ProjectTask task)
+        if (!TryParseQuantity(result, out var quantity) || quantity < 0)
         {
-            OnPropertyChanged(nameof(HasCompletedTasks));
-            return _taskRepository.SaveItemAsync(task);
+            await AppShell.DisplaySnackbarAsync("Quantità non valida.");
+            return;
         }
 
-        [RelayCommand]
-        private Task AddTask()
-            => Shell.Current.GoToAsync($"task");
+        var updated = item.Clone();
+        updated.Quantity = quantity;
 
-        [RelayCommand]
-        private Task NavigateToProject(Project project)
-            => Shell.Current.GoToAsync($"project?id={project.ID}");
+        await _pantryStore.UpdatePantryItemAsync(SelectedFamily.Id, updated);
+        await RefreshInternalAsync(SelectedFamily.Id);
+        await AppShell.DisplayToastAsync($"{item.Name} aggiornato");
+    }
 
-        [RelayCommand]
-        private Task NavigateToTask(ProjectTask task)
-            => Shell.Current.GoToAsync($"task?id={task.ID}");
-
-        [RelayCommand]
-        private async Task CleanTasks()
+    [RelayCommand]
+    private async Task DeleteItem(PantryItem item)
+    {
+        if (SelectedFamily is null)
         {
-            var completedTasks = Tasks.Where(t => t.IsCompleted).ToList();
-            foreach (var task in completedTasks)
+            return;
+        }
+
+        var confirm = await Shell.Current.DisplayAlert(
+            "Rimuovi prodotto",
+            $"Vuoi rimuovere {item.Name} dalla dispensa?",
+            "Rimuovi",
+            "Annulla");
+
+        if (!confirm)
+        {
+            return;
+        }
+
+        await _pantryStore.DeletePantryItemAsync(SelectedFamily.Id, item.Id);
+        await RefreshInternalAsync(SelectedFamily.Id);
+        await AppShell.DisplayToastAsync($"{item.Name} rimosso");
+    }
+
+    partial void OnSelectedFamilyChanged(Family? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        if (_isUpdatingFamilySelection)
+        {
+            return;
+        }
+
+        if (_familyContext.SelectedFamilyId != value.Id)
+        {
+            _familyContext.SelectedFamilyId = value.Id;
+        }
+
+        if (_isInitialized)
+        {
+            _ = RefreshInternalAsync(value.Id);
+        }
+    }
+
+    partial void OnSelectedSortOptionChanged(PantrySortOption? value)
+    {
+        if (value is null || !_currentItems.Any())
+        {
+            return;
+        }
+
+        UpdateSections(_currentItems);
+    }
+
+    private async Task LoadFamiliesAsync()
+    {
+        var families = await _pantryStore.GetFamiliesAsync();
+
+        _isUpdatingFamilySelection = true;
+        Families.Clear();
+        foreach (var family in families)
+        {
+            Families.Add(family);
+        }
+
+        Family? selected = null;
+        if (_familyContext.SelectedFamilyId is Guid currentId)
+        {
+            selected = Families.FirstOrDefault(f => f.Id == currentId);
+        }
+
+        SelectedFamily = selected ?? Families.FirstOrDefault();
+        _isUpdatingFamilySelection = false;
+    }
+
+    private async Task RefreshInternalAsync(Guid familyId)
+    {
+        if (_isLoading)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        try
+        {
+            IsBusy = true;
+            var pantry = await _pantryStore.GetPantryAsync(familyId);
+            var items = pantry.Items
+                .Where(i => i.State == PantryItemState.Active)
+                .Select(i => i.Clone())
+                .ToList();
+
+            _currentItems = items;
+
+            Summary = PantrySummary.FromItems(items, ExpiringThresholdDays);
+            UpdateHighlights(items);
+            UpdateSections(items);
+            UpdateRecipes(items);
+        }
+        finally
+        {
+            IsBusy = false;
+            _isLoading = false;
+        }
+    }
+
+    private void UpdateHighlights(List<PantryItem> items)
+    {
+        var today = DateTime.Today;
+        var expiring = items
+            .Where(i => i.IsExpiringSoon(today, ExpiringThresholdDays) || i.IsExpired(today))
+            .OrderBy(i => i.ExpirationDate ?? DateTime.MaxValue)
+            .Select(i => i.Clone())
+            .ToList();
+
+        ExpiringItems = new ObservableCollection<PantryItem>(expiring);
+
+        var lowStock = items
+            .Where(i => i.IsLowStock)
+            .OrderBy(i => i.Quantity)
+            .Select(i => i.Clone())
+            .ToList();
+
+        LowStockItems = new ObservableCollection<PantryItem>(lowStock);
+    }
+
+    private void UpdateSections(List<PantryItem> items)
+    {
+        IEnumerable<PantrySection> sections;
+        if (SelectedSortOption?.SortType == PantrySortType.Category)
+        {
+            sections = items
+                .GroupBy(i => string.IsNullOrWhiteSpace(i.Category) ? "Altro" : i.Category)
+                .OrderBy(g => g.Key)
+                .Select(g => new PantrySection(g.Key, SortItems(g, PantrySortType.Alphabetical)));
+        }
+        else
+        {
+            var sorted = SortItems(items, SelectedSortOption?.SortType ?? PantrySortType.Alphabetical);
+            sections = new[] { new PantrySection("Tutti i prodotti", sorted) };
+        }
+
+        PantrySections = new ObservableCollection<PantrySection>(sections);
+    }
+
+    private void UpdateRecipes(List<PantryItem> items)
+    {
+        var suggestions = _recipeSuggestionService.BuildSuggestions(items);
+        RecipeSuggestions = new ObservableCollection<RecipeSuggestion>(suggestions);
+    }
+
+    private static IEnumerable<PantryItem> SortItems(IEnumerable<PantryItem> items, PantrySortType sortType)
+    {
+        return sortType switch
+        {
+            PantrySortType.ExpirationDate => items.OrderBy(i => i.ExpirationDate ?? DateTime.MaxValue),
+            PantrySortType.AddedDate => items.OrderByDescending(i => i.AddedAt),
+            PantrySortType.Category => items.OrderBy(i => i.Name),
+            _ => items.OrderBy(i => i.Name),
+        };
+    }
+
+    private static bool TryParseQuantity(string text, out double value)
+    {
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value)
+            || double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    }
+
+    private void OnPantryChanged(object? sender, PantryChangedEventArgs e)
+    {
+        if (SelectedFamily?.Id != e.FamilyId)
+        {
+            return;
+        }
+
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            if (SelectedFamily is not null)
             {
-                await _taskRepository.DeleteItemAsync(task);
-                Tasks.Remove(task);
+                await RefreshInternalAsync(SelectedFamily.Id);
             }
-
-            OnPropertyChanged(nameof(HasCompletedTasks));
-            Tasks = new(Tasks);
-            await AppShell.DisplayToastAsync("All cleaned up!");
-        }
+        });
     }
 }

@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:pageModels="clr-namespace:Itemize.PageModels"
+             xmlns:pantry="clr-namespace:Itemize.Models.Pantry"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             x:Class="Itemize.Pages.ShoppingSessionPage"
+             x:DataType="pageModels:ShoppingSessionPageModel"
+             Title="Sessione spesa">
+
+    <ContentPage.Behaviors>
+        <toolkit:EventToCommandBehavior EventName="Appearing"
+                                        Command="{Binding AppearingCommand}" />
+    </ContentPage.Behaviors>
+
+    <ContentPage.Resources>
+        <ResourceDictionary>
+            <toolkit:InvertedBoolConverter x:Key="InvertedBoolConverter" />
+            <Style x:Key="SectionTitle" TargetType="Label">
+                <Setter Property="FontSize" Value="20" />
+                <Setter Property="FontAttributes" Value="Bold" />
+                <Setter Property="Margin" Value="0,20,0,10" />
+            </Style>
+            <Style x:Key="CardTitle" TargetType="Label">
+                <Setter Property="FontAttributes" Value="SemiBold" />
+                <Setter Property="FontSize" Value="16" />
+            </Style>
+        </ResourceDictionary>
+    </ContentPage.Resources>
+
+    <Grid>
+        <ScrollView>
+            <VerticalStackLayout Spacing="20"
+                                  Padding="20">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Sessione di spesa"
+                               FontSize="28"
+                               FontAttributes="Bold" />
+                        <Label Text="Simula la scansione dei prodotti e conferma al termine"
+                               TextColor="{AppThemeBinding Light={StaticResource Gray500}, Dark={StaticResource Gray400}}" />
+                    </VerticalStackLayout>
+                    <Button Text="Nuova sessione"
+                            Command="{Binding StartNewSessionCommand}"
+                            HorizontalOptions="End"
+                            VerticalOptions="Center" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Famiglia" FontAttributes="SemiBold" />
+                        <Picker ItemsSource="{Binding Families}"
+                                ItemDisplayBinding="{Binding Name}"
+                                SelectedItem="{Binding SelectedFamily}" />
+                    </VerticalStackLayout>
+                    <VerticalStackLayout Spacing="4"
+                                         HorizontalOptions="End"
+                                         VerticalOptions="Center">
+                        <Label Text="Totale stimato" FontAttributes="SemiBold" />
+                        <Label Text="{Binding EstimatedTotal, StringFormat='€ {0:F2}'}"
+                               FontSize="18"
+                               FontAttributes="Bold" />
+                    </VerticalStackLayout>
+                </Grid>
+
+                <Border IsVisible="{Binding HasActiveSession, Converter={StaticResource InvertedBoolConverter}}"
+                        StrokeShape="RoundRectangle 24"
+                        BackgroundColor="{AppThemeBinding Light={StaticResource SurfaceContainer}, Dark={StaticResource DarkSurface}}"
+                        Padding="24">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="Nessuna sessione attiva" FontSize="20" FontAttributes="Bold" />
+                        <Label Text="Avvia una sessione per iniziare a scansionare i prodotti." />
+                        <Button Text="Inizia ora" Command="{Binding StartNewSessionCommand}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <VerticalStackLayout IsVisible="{Binding HasActiveSession}" Spacing="20">
+                    <Border StrokeShape="RoundRectangle 24"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource PrimaryContainer}, Dark={StaticResource DarkContainer}}"
+                            Padding="20">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="8">
+                            <Label Grid.Row="0" Grid.Column="0"
+                                   Text="{Binding SessionTitle}"
+                                   FontSize="22"
+                                   FontAttributes="Bold" />
+                            <Label Grid.Row="1" Grid.Column="0"
+                                   Text="Prodotti in lista: {Binding Items.Count}"
+                                   TextColor="{AppThemeBinding Light={StaticResource Gray700}, Dark={StaticResource Gray300}}" />
+                            <Button Grid.Row="0" Grid.Column="1" Grid.RowSpan="2"
+                                    Text="Conferma"
+                                    Command="{Binding ConfirmSessionCommand}" />
+                        </Grid>
+                    </Border>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <Button Text="Scansiona prodotto"
+                                Command="{Binding ScanProductCommand}" />
+                        <Button Text="Inserisci manualmente"
+                                Command="{Binding ToggleManualEntryCommand}" />
+                    </Grid>
+
+                    <Border IsVisible="{Binding IsManualEntryVisible}"
+                            StrokeShape="RoundRectangle 18"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource SurfaceContainer}, Dark={StaticResource DarkSurface}}"
+                            Padding="16">
+                        <VerticalStackLayout Spacing="10">
+                            <Label Text="Inserisci il codice a barre"
+                                   FontAttributes="Bold" />
+                            <Entry Placeholder="Es. 8001250120057"
+                                   Text="{Binding ManualBarcode}" />
+                            <Button Text="Aggiungi prodotto"
+                                    Command="{Binding AddManualProductCommand}" />
+                            <Label Text="Opzione di backup: usa solo in caso di problemi con la scansione"
+                                   Style="{StaticResource CardTitle}" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <VerticalStackLayout>
+                        <Label Text="Prodotti aggiunti" Style="{StaticResource SectionTitle}" />
+                        <CollectionView ItemsSource="{Binding Items}"
+                                        SelectionMode="None">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="pantry:ShoppingItem">
+                                    <SwipeView>
+                                        <SwipeView.LeftItems>
+                                            <SwipeItems Mode="Reveal">
+                                                <SwipeItem Text="Modifica"
+                                                           BackgroundColor="{StaticResource SecondaryContainer}"
+                                                           Command="{Binding BindingContext.EditItemCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                                           CommandParameter="{Binding .}" />
+                                            </SwipeItems>
+                                        </SwipeView.LeftItems>
+                                        <SwipeView.RightItems>
+                                            <SwipeItems Mode="Reveal">
+                                                <SwipeItem Text="Rimuovi"
+                                                           BackgroundColor="{StaticResource ErrorContainer}"
+                                                           Command="{Binding BindingContext.RemoveItemCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}"
+                                                           CommandParameter="{Binding .}" />
+                                            </SwipeItems>
+                                        </SwipeView.RightItems>
+                                        <Border StrokeShape="RoundRectangle 16"
+                                                BackgroundColor="{AppThemeBinding Light={StaticResource SurfaceContainer}, Dark={StaticResource DarkSurface}}"
+                                                Padding="16"
+                                                Margin="0,0,0,12">
+                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                                                <Border WidthRequest="48" HeightRequest="48"
+                                                        StrokeShape="RoundRectangle 12"
+                                                        BackgroundColor="{AppThemeBinding Light={StaticResource SecondaryContainer}, Dark={StaticResource DarkContainer}}"
+                                                        VerticalOptions="Center">
+                                                    <Label Text="{Binding QuantityDisplay}"
+                                                           HorizontalOptions="Center"
+                                                           VerticalOptions="Center"
+                                                           FontAttributes="Bold" />
+                                                </Border>
+                                                <VerticalStackLayout Spacing="4">
+                                                    <Label Text="{Binding Product.Name}" Style="{StaticResource CardTitle}" />
+                                                    <Label Text="{Binding Product.Brand}" />
+                                                    <Label Text="Unità: {Binding Unit}" />
+                                                    <Label Text="{Binding Price, StringFormat='€ {0:F2}'}"
+                                                           TextColor="{AppThemeBinding Light={StaticResource Gray700}, Dark={StaticResource Gray300}}" />
+                                                </VerticalStackLayout>
+                                            </Grid>
+                                        </Border>
+                                    </SwipeView>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                            <CollectionView.EmptyView>
+                                <Border StrokeShape="RoundRectangle 18"
+                                        BackgroundColor="{AppThemeBinding Light={StaticResource SurfaceContainer}, Dark={StaticResource DarkSurface}}"
+                                        Padding="20">
+                                    <Label Text="Scansiona o aggiungi un prodotto per popolare la lista" />
+                                </Border>
+                            </CollectionView.EmptyView>
+                        </CollectionView>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+</ContentPage>
