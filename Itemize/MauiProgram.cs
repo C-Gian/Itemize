@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Maui;
+using CommunityToolkit.Maui;
 using Microsoft.Extensions.Logging;
 using Syncfusion.Maui.Toolkit.Hosting;
 
@@ -16,7 +16,7 @@ namespace Itemize
                 .ConfigureMauiHandlers(handlers =>
                 {
 #if IOS || MACCATALYST
-    				handlers.AddHandler<Microsoft.Maui.Controls.CollectionView, Microsoft.Maui.Controls.Handlers.Items2.CollectionViewHandler2>();
+                    handlers.AddHandler<Microsoft.Maui.Controls.CollectionView, Microsoft.Maui.Controls.Handlers.Items2.CollectionViewHandler2>();
 #endif
                 })
                 .ConfigureFonts(fonts =>
@@ -28,22 +28,17 @@ namespace Itemize
                 });
 
 #if DEBUG
-    		builder.Logging.AddDebug();
-    		builder.Services.AddLogging(configure => configure.AddDebug());
+            builder.Logging.AddDebug();
+            builder.Services.AddLogging(configure => configure.AddDebug());
 #endif
 
-            builder.Services.AddSingleton<ProjectRepository>();
-            builder.Services.AddSingleton<TaskRepository>();
-            builder.Services.AddSingleton<CategoryRepository>();
-            builder.Services.AddSingleton<TagRepository>();
-            builder.Services.AddSingleton<SeedDataService>();
-            builder.Services.AddSingleton<ModalErrorHandler>();
+            builder.Services.AddSingleton<InMemoryPantryStore>();
+            builder.Services.AddSingleton<IPantryStore>(sp => sp.GetRequiredService<InMemoryPantryStore>());
+            builder.Services.AddSingleton<IProductCatalog>(sp => sp.GetRequiredService<InMemoryPantryStore>());
+            builder.Services.AddSingleton<RecipeSuggestionService>();
+            builder.Services.AddSingleton<FamilyContext>();
             builder.Services.AddSingleton<MainPageModel>();
-            builder.Services.AddSingleton<ProjectListPageModel>();
-            builder.Services.AddSingleton<ManageMetaPageModel>();
-
-            builder.Services.AddTransientWithShellRoute<ProjectDetailPage, ProjectDetailPageModel>("project");
-            builder.Services.AddTransientWithShellRoute<TaskDetailPage, TaskDetailPageModel>("task");
+            builder.Services.AddSingleton<ShoppingSessionPageModel>();
 
             return builder.Build();
         }

@@ -9,26 +9,20 @@
     Title="Itemize">
 
     <ShellContent
-        Title="Dashboard"
-        Icon="{StaticResource IconDashboard}"
+        Title="Dispensa"
+        Icon="{StaticResource IconPantry}"
         ContentTemplate="{DataTemplate pages:MainPage}"
-        Route="main" />
+        Route="pantry" />
 
     <ShellContent
-        Title="Projects"
-        Icon="{StaticResource IconProjects}"
-        ContentTemplate="{DataTemplate pages:ProjectListPage}"
-        Route="projects" />
-
-    <ShellContent
-        Title="Manage Meta"
-        Icon="{StaticResource IconMeta}"
-        ContentTemplate="{DataTemplate pages:ManageMetaPage}"
-        Route="manage" />
+        Title="Sessione spesa"
+        Icon="{StaticResource IconShopping}"
+        ContentTemplate="{DataTemplate pages:ShoppingSessionPage}"
+        Route="shopping" />
 
     <Shell.FlyoutFooter>
         <Grid Padding="15">
-            <sf:SfSegmentedControl x:Name="ThemeSegmentedControl" 
+            <sf:SfSegmentedControl x:Name="ThemeSegmentedControl"
                 VerticalOptions="Center" HorizontalOptions="Center" SelectionChanged="SfSegmentedControl_SelectionChanged"
                 SegmentWidth="40" SegmentHeight="40">
                 <sf:SfSegmentedControl.ItemsSource>
